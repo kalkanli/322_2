@@ -4,19 +4,29 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
+#include <regex>
 
 using namespace std;
 
 pthread_mutex_t mutex;
 bool busy[3] = {false};
+sem_t available_tellers;
+struct job
+{
+    string client_name;
+    int seat_number;
+    int service_time;
+};
+struct job *jobs;
 
 void *client_runner(void* params);
-
+void *teller_runner(void *params);
 
 int main(int argc, char const *argv[])
 {
 
     pthread_t tellers[3];
+    sem_init(&available_tellers, 0, 3);
     pthread_mutex_init(&mutex, NULL);
 
     string input_file_path = argv[1];
@@ -32,7 +42,9 @@ int main(int argc, char const *argv[])
     client_count = stoi(client_count_str);
     pthread_t client_thread_ids[client_count];
     string clients[client_count];
+    jobs[client_count];
 
+    pthread_t teller_thread_ids[3];
 
     bool *seats;
     if (theater_name.compare("OdaTiyatrosu\r") == 0)
@@ -48,7 +60,12 @@ int main(int argc, char const *argv[])
         seats = (bool *)calloc(200, sizeof(bool));
     }
 
-    //client_count = 3;
+    char a = 'A';
+    char b = 'B';
+    char c = 'C';
+    pthread_create(&teller_thread_ids[0], NULL, &teller_runner, &a);
+    pthread_create(&teller_thread_ids[1], NULL, &teller_runner, &b);
+    pthread_create(&teller_thread_ids[2], NULL, &teller_runner, &c);
 
     for (int i = 0; i < client_count; i++)
     {
@@ -60,6 +77,9 @@ int main(int argc, char const *argv[])
         pthread_join(client_thread_ids[i], NULL);
     }
 
+    for(int i=0; i<3; i++) {
+        pthread_join(teller_thread_ids[i], NULL);
+    }
 
     free(seats);
     pthread_mutex_destroy(&mutex);
@@ -71,28 +91,40 @@ int main(int argc, char const *argv[])
 
 void *client_runner(void* params)
 {
-    string *client = (string *)params;
-    cout << client[0] << endl;
-    // string client_name = client[0];
-    // int arrival_time = stoi(client[1]);
-    // int service_time = stoi(client[2]);
-    // int seat_number = stoi(client[3]);
-    // cout << client_name << " " << arrival_time << service_time << seat_number << endl;
+    // TODO later can be changed.
+    string *client = (string*) params;
+    regex reg(",");
+    sregex_token_iterator iter((*client).begin(), (*client).end(), reg, -1);
+    sregex_token_iterator end;
+    vector<string> vec(iter, end);
+    
+    string client_name = vec[0];
+    int arrival_time = stoi(vec[1]);
+    int service_time = stoi(vec[2]);
+    int seat_number = stoi(vec[3]);
 
+    sleep(arrival_time);
+
+    sem_wait(&available_tellers);
     pthread_mutex_lock(&mutex);
-    printf("Hello I am client\n" );
-    // %s, I would like the seat number %d", client_name.c_str(), seat_number
-    sleep(2);
+    
+    struct job reservation = {
+        client_name,
+        seat_number,
+        service_time
+    };
+    
     pthread_mutex_unlock(&mutex);
-
+    sem_post(&available_tellers);
+    
     pthread_exit(NULL);
     //return 0;
 }
 
 
-
-
-void *teller(void *params)
+void *teller_runner(void *params)
 {
-    return 0;
+    char *teller = (char*) params;
+    cout << *teller << endl;
+    pthread_exit(0);
 }
