@@ -9,15 +9,24 @@
 using namespace std;
 
 pthread_mutex_t mutex;
-bool busy[3] = {false};
 sem_t available_tellers;
-sem_t ready_clients;
-struct job { string client_name; int seat_number; int service_time; };
-struct job *jobs;
-int ready_process = 0;
+sem_t ready_clients[3];
+struct job
+{
+    string client_name;
+    int seat_number;
+    double service_time;
+    // bool available;
+};
+struct job buffer[3];
+int buffer_in = 0;
+int buffer_out = 0;
+
 bool *seats;
 int taken_seats = 0;
 int total_seats;
+
+bool busy[3] = {false};
 
 void *client_runner(void *params);
 void *teller_runner(void *params);
@@ -25,8 +34,10 @@ void *teller_runner(void *params);
 int main(int argc, char const *argv[])
 {
 
-    pthread_t tellers[3];
-    sem_init(&ready_clients, 0, 0);
+    sem_init(&ready_clients[0], 0, 0);
+    sem_init(&ready_clients[1], 0, 0);
+    sem_init(&ready_clients[2], 0, 0);
+
     sem_init(&available_tellers, 0, 3);
     pthread_mutex_init(&mutex, NULL);
 
@@ -43,7 +54,11 @@ int main(int argc, char const *argv[])
     client_count = stoi(client_count_str);
     pthread_t client_thread_ids[client_count];
     string clients[client_count];
-    jobs[client_count];
+
+    buffer[3];
+    // buffer[0] = {"", 0, 0, true};
+    // buffer[1] = {"", 0, 0, true};
+    // buffer[2] = {"", 0, 0, true};
 
     pthread_t teller_thread_ids[3];
 
@@ -102,19 +117,32 @@ void *client_runner(void *params)
     vector<string> vec(iter, end);
 
     string client_name = vec[0];
-    int arrival_time = stoi(vec[1]);
-    int service_time = stoi(vec[2]);
+    double arrival_time = stoi(vec[1]) * 0.001;
+    double service_time = stoi(vec[2]) * 0.001;
     int seat_number = stoi(vec[3]);
     sleep(arrival_time);
 
-    /* CRITICAL SECTION */
+    /* CRITICAL SECTION ENTER */
     sem_wait(&available_tellers);
     pthread_mutex_lock(&mutex);
-    struct job reservation = { client_name, seat_number, service_time };
-    jobs[ready_process] = reservation;
+    cout << arrival_time << endl;
+    for (int i = 0; i < 3; i++)
+    {
+        if (!busy[i])
+        {
+            buffer_in = i;
+            break;
+        }
+    }
+    cout << client_name << "->" << char(buffer_in+65) << endl; 
+    busy[buffer_in] = true;
+    //cout << client_name << " asks for service from " << char(buffer_in + 65) << endl;
+    struct job reservation = {client_name, seat_number, service_time};
+    buffer[buffer_in] = reservation;
+    sleep(service_time);
     pthread_mutex_unlock(&mutex);
-    sem_post(&ready_clients);
-    /* CRITICAL SECTION */
+    sem_post(&ready_clients[buffer_in]);
+    /* CRITICAL SECTION EXIT */
 
     pthread_exit(NULL);
     //return 0;
@@ -123,27 +151,46 @@ void *client_runner(void *params)
 void *teller_runner(void *params)
 {
     char *teller = (char *)params;
-    while (taken_seats != total_seats)
+    int reserved_seat_number = 0;
+    while (true)
     {
-        sem_wait(&ready_clients);
+        sem_wait(&ready_clients[*teller - 65]);
         pthread_mutex_lock(&mutex);
+        struct job reservation = buffer[*teller - 65];
+        // if (!reservation.available)
+        // {
+        // printf("teller %c trying to reserve seat number %d", *teller, reservation.seat_number);
+        if (taken_seats == total_seats)
+        {
+            cout << "no reservation" << endl;
+            continue;
+        }
 
-        struct job reservation = jobs[ready_process];
-        ready_process++;
-        
-        if(!seats[reservation.seat_number]) { // seat not taken
-            seats[reservation.seat_number] = true;
-        } else { // seat already taken.
-            for(int i=0; i<total_seats; i++) {
-                if(!seats[i]) {
+        if (!seats[reservation.seat_number - 1])
+        { // seat not taken
+            seats[reservation.seat_number - 1] = true;
+            reserved_seat_number = reservation.seat_number;
+        }
+        else
+        { // seat already taken.
+            for (int i = 0; i < total_seats; i++)
+            {
+                if (!seats[i])
+                {
                     seats[i] = true;
+                    reserved_seat_number = i + 1;
+                    break;
                 }
             }
         }
-        taken_seats++;
+        // cout << reservation.client_name << " reserved seat number " << reserved_seat_number
+        //      << ". signed by teller " << *teller << endl;
         sleep(reservation.service_time);
-
-
+        busy[*teller-65] = false;
+        // buffer[*teller - 65].available = true;
+        // }
+        pthread_mutex_unlock(&mutex);
+        sem_post(&available_tellers);
     }
-
+    pthread_exit(NULL);
 }
