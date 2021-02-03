@@ -8,6 +8,7 @@
 
 using namespace std;
 
+pthread_mutex_t print_mutex;
 pthread_mutex_t mutex;
 sem_t available_tellers;
 sem_t ready_clients[3];
@@ -16,7 +17,6 @@ struct job
     string client_name;
     int seat_number;
     double service_time;
-    // bool available;
 };
 struct job buffer[3];
 int buffer_in = 0;
@@ -40,6 +40,7 @@ int main(int argc, char const *argv[])
 
     sem_init(&available_tellers, 0, 3);
     pthread_mutex_init(&mutex, NULL);
+    pthread_mutex_init(&print_mutex, NULL);
 
     string input_file_path = argv[1];
     ifstream file(input_file_path);
@@ -96,7 +97,7 @@ int main(int argc, char const *argv[])
         pthread_join(client_thread_ids[i], NULL);
     }
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 1; i++)
     {
         pthread_join(teller_thread_ids[i], NULL);
     }
@@ -122,10 +123,12 @@ void *client_runner(void *params)
     int seat_number = stoi(vec[3]);
     sleep(arrival_time);
 
+
+
+
     /* CRITICAL SECTION ENTER */
     sem_wait(&available_tellers);
     pthread_mutex_lock(&mutex);
-    cout << arrival_time << endl;
     for (int i = 0; i < 3; i++)
     {
         if (!busy[i])
@@ -134,12 +137,11 @@ void *client_runner(void *params)
             break;
         }
     }
-    cout << client_name << "->" << char(buffer_in+65) << endl; 
+    // cout << client_name << "->" << char(buffer_in+65) << endl; 
     busy[buffer_in] = true;
     //cout << client_name << " asks for service from " << char(buffer_in + 65) << endl;
     struct job reservation = {client_name, seat_number, service_time};
     buffer[buffer_in] = reservation;
-    sleep(service_time);
     pthread_mutex_unlock(&mutex);
     sem_post(&ready_clients[buffer_in]);
     /* CRITICAL SECTION EXIT */
@@ -152,14 +154,18 @@ void *teller_runner(void *params)
 {
     char *teller = (char *)params;
     int reserved_seat_number = 0;
+    int buffer_index = *teller - 65;
     while (true)
     {
-        sem_wait(&ready_clients[*teller - 65]);
+        sem_wait(&ready_clients[buffer_index]);
+
         pthread_mutex_lock(&mutex);
-        struct job reservation = buffer[*teller - 65];
-        // if (!reservation.available)
-        // {
-        // printf("teller %c trying to reserve seat number %d", *teller, reservation.seat_number);
+        struct job reservation = buffer[buffer_index];
+        pthread_mutex_unlock(&mutex);
+        
+        sleep(reservation.service_time);
+        
+        pthread_mutex_lock(&mutex);
         if (taken_seats == total_seats)
         {
             cout << "no reservation" << endl;
@@ -183,12 +189,9 @@ void *teller_runner(void *params)
                 }
             }
         }
-        // cout << reservation.client_name << " reserved seat number " << reserved_seat_number
-        //      << ". signed by teller " << *teller << endl;
-        sleep(reservation.service_time);
-        busy[*teller-65] = false;
-        // buffer[*teller - 65].available = true;
-        // }
+        cout << reservation.client_name << " reserved seat number " << reserved_seat_number
+            << ". signed by teller " << *teller << endl;
+        busy[buffer_index] = false;
         pthread_mutex_unlock(&mutex);
         sem_post(&available_tellers);
     }
