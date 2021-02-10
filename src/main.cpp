@@ -31,10 +31,12 @@ int buffer_in = 0;
 int buffer_out = 0;
 
 bool *seats;
-int taken_seats = 0;
+int seats_left;
 int total_seats;
 
 int clients_left;
+
+FILE *output_file;
 
 int main(int argc, char const *argv[])
 {
@@ -44,6 +46,9 @@ int main(int argc, char const *argv[])
 
     string input_file_path = argv[1];
     ifstream file(input_file_path);
+
+    output_file = fopen(argv[2], "w");
+    fprintf(output_file, "Welcome to the Sync-Ticket!\n");
 
     string line;
     string theater_name;
@@ -61,22 +66,29 @@ int main(int argc, char const *argv[])
 
     pthread_t teller_thread_ids[3];
 
-    if (theater_name.compare("OdaTiyatrosu\r") == 0)
+    printf("%s\n", theater_name.c_str());
+
+    if (theater_name.compare("OdaTiyatrosu") == 0)
     {
         seats = (bool *)calloc(60, sizeof(bool));
-        //seats = new bool[60]();
+        // seats = new bool[60]();
+        seats_left = 60; 
         total_seats = 60;
     }
-    else if (theater_name.compare("UskudarStudyoSahne\r") == 0)
+    else if (theater_name.compare("UskudarStudyoSahne") == 0)
     {
         seats = (bool *)calloc(80, sizeof(bool));
+        seats_left = 80; 
         total_seats = 80;
     }
-    else if (theater_name.compare("KucukSahne\r") == 0)
+    else if (theater_name.compare("KucukSahne") == 0)
     {
         seats = (bool *)calloc(200, sizeof(bool));
+        seats_left = 200; 
         total_seats = 200;
     }
+
+    cout << seats_left << endl;
 
     char a = 'A';
     char b = 'B';
@@ -101,7 +113,9 @@ int main(int argc, char const *argv[])
         pthread_join(teller_thread_ids[i], NULL);
     }
 
-    // delete buffer;
+    fprintf(output_file, "All clients received service.");
+
+    free(buffer);
     free(seats);
     pthread_mutex_destroy(&mutex);
     sem_destroy(&full);
@@ -142,33 +156,43 @@ void *teller_runner(void *params)
     char *teller = (char *)params;
     bool print = false;
     struct job reservation;
-    int reserved;
+
+    fprintf(output_file, "Teller %c has arrived.\n", *teller);
 
     while (true)
     {
+        int reserved = -1;
         if (clients_left == 0)
         {
             break;
         }
-
-        bool turn = checkIfMyTurn(*teller);
-        if (turn)
+        
+        busy[*teller - 65] = false;
+        if (checkIfMyTurn(*teller))
         {
             sem_wait(&full);
+
+            if (!checkIfMyTurn(*teller))
+            {
+                sem_post(&full);
+                continue;
+            }
+
             pthread_mutex_lock(&mutex);
+
             busy[*teller - 65] = true;
             reservation = buffer[buffer_out];
             buffer_out++;
-            if (taken_seats != total_seats)
+            if (seats_left)
             {
-                if (!seats[reservation.seat_number - 1])
+                if (!seats[reservation.seat_number - 1] && reservation.seat_number <= total_seats)
                 {
                     seats[reservation.seat_number - 1] = true;
                     reserved = reservation.seat_number;
                 }
                 else
                 {
-                    for (int i = 0; i < total_seats; i++)
+                    for (int i = 0; i < seats_left; i++)
                     {
                         if (!seats[i])
                         {
@@ -178,25 +202,22 @@ void *teller_runner(void *params)
                         }
                     }
                 }
-                clients_left--;
-                taken_seats++;
+                seats_left--;
             }
             pthread_mutex_unlock(&mutex);
             sem_post(&empty);
-        }
 
-        if (busy[*teller - 65])
-        {
             usleep(reservation.service_time);
-            if (taken_seats == total_seats)
+
+            if (reserved == -1)
             {
-                printf("%s requests seat %d, reserves None. Signed by Teller %c.\n", reservation.client_name.c_str(), reservation.seat_number, *teller);
+                fprintf(output_file, "%s requests seat %d, reserves None. Signed by Teller %c.\n", reservation.client_name.c_str(), reservation.seat_number, *teller);
             }
             else
             {
-                printf("%s requests seat %d, reserves seat %d. Signed by Teller %c.\n", reservation.client_name.c_str(), reservation.seat_number, reserved, *teller);
+                fprintf(output_file, "%s requests seat %d, reserves seat %d. Signed by Teller %c.\n", reservation.client_name.c_str(), reservation.seat_number, reserved, *teller);
             }
-            busy[*teller - 65] = false;
+            clients_left--;
         }
     }
     pthread_exit(NULL);
