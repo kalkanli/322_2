@@ -9,7 +9,7 @@
 using namespace std;
 
 pthread_mutex_t mutex;
-pthread_mutex_t print_mutex;
+pthread_mutex_t decrease_mutex;
 sem_t full;
 sem_t empty;
 
@@ -66,29 +66,25 @@ int main(int argc, char const *argv[])
 
     pthread_t teller_thread_ids[3];
 
-    printf("%s\n", theater_name.c_str());
-
     if (theater_name.compare("OdaTiyatrosu") == 0)
     {
-        seats = (bool *)calloc(60, sizeof(bool));
-        // seats = new bool[60]();
-        seats_left = 60; 
+        seats = new bool[60]();
+        seats_left = 60;
         total_seats = 60;
     }
     else if (theater_name.compare("UskudarStudyoSahne") == 0)
     {
-        seats = (bool *)calloc(80, sizeof(bool));
-        seats_left = 80; 
+        seats = new bool[80]();
+        ;
+        seats_left = 80;
         total_seats = 80;
     }
     else if (theater_name.compare("KucukSahne") == 0)
     {
-        seats = (bool *)calloc(200, sizeof(bool));
-        seats_left = 200; 
+        seats = new bool[200]();
+        seats_left = 200;
         total_seats = 200;
     }
-
-    cout << seats_left << endl;
 
     char a = 'A';
     char b = 'B';
@@ -115,8 +111,8 @@ int main(int argc, char const *argv[])
 
     fprintf(output_file, "All clients received service.");
 
-    free(buffer);
-    free(seats);
+    delete[] seats;
+    delete[] buffer;
     pthread_mutex_destroy(&mutex);
     sem_destroy(&full);
     sem_destroy(&empty);
@@ -162,15 +158,17 @@ void *teller_runner(void *params)
     while (true)
     {
         int reserved = -1;
-        if (clients_left == 0)
-        {
-            break;
-        }
-        
+
         busy[*teller - 65] = false;
         if (checkIfMyTurn(*teller))
         {
             sem_wait(&full);
+
+            if (!clients_left)
+            {
+                sem_post(&full);
+                break;
+            }
 
             if (!checkIfMyTurn(*teller))
             {
@@ -204,6 +202,7 @@ void *teller_runner(void *params)
                 }
                 seats_left--;
             }
+            clients_left--;
             pthread_mutex_unlock(&mutex);
             sem_post(&empty);
 
@@ -217,7 +216,11 @@ void *teller_runner(void *params)
             {
                 fprintf(output_file, "%s requests seat %d, reserves seat %d. Signed by Teller %c.\n", reservation.client_name.c_str(), reservation.seat_number, reserved, *teller);
             }
-            clients_left--;
+        }
+        if (!clients_left)
+        {
+            sem_post(&full);
+            break;
         }
     }
     pthread_exit(NULL);
